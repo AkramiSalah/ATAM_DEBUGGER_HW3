@@ -110,10 +110,12 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
     Elf64_Shdr strtab_header = shtbl[strtbl_idx];
 
     int num_symbols = symtab_header.sh_size/symtab_header.sh_entsize;
-    Elf64_Sym* symbol_arr = (Elf64_Sym*)((char*)header + strtab_header.sh_offset);
+    Elf64_Sym* symbol_arr = (Elf64_Sym*)((char*)header + symtab_header.sh_offset);
+
+    char* strings_start = (char*)header + strtab_header.sh_offset;
 
     for(int i = 0; i < num_symbols; i++){
-        char* symbol_name = symbol_arr[i].st_name;
+        char* symbol_name = strings_start + symbol_arr[i].st_name;
         if(strcmp(target_sym, symbol_name) == 0){
             return (unsigned long) symbol_arr[i].st_value;
         }
