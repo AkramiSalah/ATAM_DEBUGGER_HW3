@@ -78,6 +78,25 @@ void* get_elf_content(const char* sym_name, const char* file_name)
     return file_content;
 }
 
+
+int get_section_index_by_name(const char* section_name, Elf64_Ehdr* header){
+    Elf64_Shdr* shtbl = (Elf64_Shdr*)((char*)header + header->e_shoff);
+    
+    char* strtbl = (char*)header + shtbl[header->e_shstrndx].sh_offset;
+    
+
+    for (int i = 0; i < header->e_shnum; i++){
+        if(strcmp(section_name, strtbl + shtbl[i].sh_name) == 0){
+            return i;
+        }
+
+
+    }
+    fprintf(stderr, "could not find the section: %s\n", section_name);
+    return -1;
+}
+
+
 unsigned long parse_elf(const char* target_sym, void* file_contents)
 {
     // TODO: Look up target_sym address in the elf binary and return its virtual
