@@ -79,12 +79,8 @@ void* get_elf_content(const char* sym_name, const char* file_name)
 }
 
 
-int get_section_index_by_name(const char* section_name, Elf64_Ehdr* header){
-    Elf64_Shdr* shtbl = (Elf64_Shdr*)((char*)header + header->e_shoff);
-    
+int get_section_index_by_name(const char* section_name, Elf64_Ehdr* header, Elf64_Shdr* shtbl){
     char* strtbl = (char*)header + shtbl[header->e_shstrndx].sh_offset;
-    
-
     for (int i = 0; i < header->e_shnum; i++){
         if(strcmp(section_name, strtbl + shtbl[i].sh_name) == 0){
             return i;
@@ -101,6 +97,18 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
 {
     // TODO: Look up target_sym address in the elf binary and return its virtual
     // address. Return 0 if not found.
+    Elf64_Ehdr* header = (Elf64_Ehdr*) file_contents;
+    Elf64_Shdr* shtbl = (Elf64_Shdr*)((char*)header + header->e_shoff);
+
+    int symtab_idx = get_section_index_by_name(".symtab", header, shtbl);
+    if (symtab_idx == -1) return 1;
+    Elf64_Shdr symtab_header = shtbl[symtab_idx];
+    
+    int strtbl_idx = get_section_index_by_name(".strtab", header, shtbl);
+    if (strtbl_idx == -1) return 1;
+    Elf64_Shdr strtab_header = shtbl[strtbl_idx];
+
+
 
     return 0;
 }
