@@ -101,15 +101,23 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
     Elf64_Shdr* shtbl = (Elf64_Shdr*)((char*)header + header->e_shoff);
 
     int symtab_idx = get_section_index_by_name(".symtab", header, shtbl);
-    if (symtab_idx == -1) return 1;
-    Elf64_Shdr symtab_header = shtbl[symtab_idx];
+    if (symtab_idx == -1) return 0;
     
     int strtbl_idx = get_section_index_by_name(".strtab", header, shtbl);
-    if (strtbl_idx == -1) return 1;
+    if (strtbl_idx == -1) return 0;
+
+    Elf64_Shdr symtab_header = shtbl[symtab_idx];
     Elf64_Shdr strtab_header = shtbl[strtbl_idx];
 
+    int num_symbols = symtab_header.sh_size/symtab_header.sh_entsize;
+    Elf64_Sym* symbol_arr = (Elf64_Sym*)((char*)header + strtab_header.sh_offset);
 
-
+    for(int i = 0; i < num_symbols; i++){
+        char* symbol_name = symbol_arr[i].st_name;
+        if(strcmp(target_sym, symbol_name) == 0){
+            return (unsigned long) symbol_arr[i].st_value;
+        }
+    }
     return 0;
 }
 
@@ -128,8 +136,9 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
 
 void print_prefix(const char *str){
     puts("\n");
-    puts("PRF:: ")
+    puts("PRF:: ");
 }
+
 int main(int argc, char* const argv[])
 {
     if (argc < 4) {
