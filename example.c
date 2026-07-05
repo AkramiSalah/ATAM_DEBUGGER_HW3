@@ -132,8 +132,20 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     struct user_regs_struct regs;
 
     wait(&wait_status);
-
+    
     // TODO: Implement tracing logic
+    int icounter = 0;
+    while(WIFSTOPPED(wait_status)){
+        ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
+
+        unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
+        if((original_instr && 0xFF) == 0x55){
+            //hopefully i understood correctly so this means that this is a pushrbp opcode.
+            printf("PRF:: This function starts by pushing rbp\n");
+        }
+
+        // TODO : the rest of this.. its in the slides of trigul 8.
+    }
 }
 
 int main(int argc, char* const argv[])
@@ -167,6 +179,7 @@ int main(int argc, char* const argv[])
 
     // TODO: check and print if the called func starts with push %rbp. 
     // Launch the target program
+
     pid_t child_pid = run_target(argv + 3);
 
     // Run the tracer
