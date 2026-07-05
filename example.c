@@ -136,11 +136,6 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     // TODO: Implement tracing logic
 }
 
-void print_prefix(const char *str){
-    puts("\n");
-    puts("PRF:: ");
-}
-
 int main(int argc, char* const argv[])
 {
     if (argc < 4) {
