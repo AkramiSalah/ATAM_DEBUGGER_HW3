@@ -158,7 +158,14 @@ int main(int argc, char* const argv[])
     free(file_content);
 
     // TODO: check if symbol was found
+    if(addr == 0){
+        printf("PRF:: symbol not found\n");
+        return 1;
+    }else{
+        printf("PRF:: symbol address is %p\n", addr);
+    }
 
+    // TODO: check and print if the called func starts with push %rbp. 
     // Launch the target program
     pid_t child_pid = run_target(argv + 3);
 
