@@ -185,6 +185,10 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     static unsigned char breakpoint = 0xCC;
     // insert breakpoint
     unsigned char original_byte = put_char(child_pid, (void*)addr, breakpoint);
+
+    unsigned long return_address = 0;
+    unsigned char return_original_byte = 0;
+
     //continue running
     ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
@@ -196,6 +200,7 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         if (WIFEXITED(wait_status)) {
             break; // The child program finished naturally
         }
+        ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
 
         // hit breakpoint at the start of the function
         if (regs.rip - 1 == addr) {
@@ -204,6 +209,10 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
                 printf("PRF:: run #%d called with ", run_counter);
                 print_params(regs, nr_params);
                 printf(":\n");
+
+                //for phase D - place breakpoint at the return address of the
+                return_address = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)regs.rsp, NULL);
+                return_original_byte = put_char(child_pid, (void*)return_address, breakpoint);
             } else {
                 // This is recursive
                 printf("PRF::     entered recursive call with ");
@@ -223,6 +232,25 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
             put_char(child_pid, (void*)addr, breakpoint);       //put breakpoint back
 
             //continue the function
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        }
+        // hit return breakpoint
+        else if (return_address != 0 && (regs.rip - 1 == return_address)) {
+            recursive_count--;
+
+            if (recursive_count == 0) {
+                // return value at rax after a function ended
+                printf("PRF::  call to function returned with %d\n", (int)regs.rax);
+            }
+
+            // place the original command, execute it and NOT return the breakpoint
+            put_char(child_pid, (void*)return_address, return_original_byte);
+            regs.rip -= 1;
+            ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+            wait(&wait_status);
+
+            return_address = 0;
             ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         }
         // stopped not because of the breakpoint - continue.
