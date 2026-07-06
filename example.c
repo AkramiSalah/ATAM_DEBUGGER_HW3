@@ -137,11 +137,6 @@ unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     return original_byte;
 }
 
-// maybe restore byte is a btter name??? idk..
-void remove_breakpoint(void* addr, unsigned char original_byte){
-    *(char*)addr = original_byte;
-}
-
 /*
  * Main debugger tracing loop.
  */
@@ -164,8 +159,9 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         }
 
         // TODO : the rest of this.. its in the slides of trigul 8.
-        unsigned char func_original_byte = put_breakpoint(addr);
-        unsigned char caller_original_byte = put_breakpoint(regs.rsp);
+        static unsigned char breakpoint = 0xCC;
+        unsigned char func_original_byte = put_char(child_pid, addr, breakpoint);
+        unsigned char caller_original_byte = put_char(child_pid, regs.rsp, breakpoint);
 
     }
 }
