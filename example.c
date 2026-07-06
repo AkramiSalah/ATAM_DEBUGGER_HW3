@@ -123,13 +123,17 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
     return 0;
 }
 
-// input: address
-// side effect: puts a breakpoint(0xCC) at the address
-// returns: original byte that got replaced with a breakpoint.
-unsigned char put_breakpoint(void* addr){
-    static const unsigned char breakpoint = 0xCC;
-    unsigned char original_byte = *(char*)addr; 
-    *(char*)addr = 0xCC;
+/* 
+    input: child proccess id, address to put char at, the char to put there.
+    side effect: puts ch at the address
+    returns: original byte that got replaced with a ch.
+ */
+
+unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
+    unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, addr, NULL);
+    unsigned char original_byte = (unsigned char)(original_instr && 0XFF); 
+    unsigned long trap = (original_byte & ~(0xFF)) | ch; // epic sifratiot trick :)
+    ptrace(PTRACE_POKETEXT, child_pid, addr, (void*)trap);
     return original_byte;
 }
 
@@ -154,12 +158,15 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
 
         unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
-        if((original_instr && 0xFF) == 0x55){
+        if((original_instr & 0xFF) == 0x55){
             //hopefully i understood correctly so this means that this is a pushrbp opcode.
             printf("PRF:: This function starts by pushing rbp\n");
         }
 
         // TODO : the rest of this.. its in the slides of trigul 8.
+        unsigned char func_original_byte = put_breakpoint(addr);
+        unsigned char caller_original_byte = put_breakpoint(regs.rsp);
+
     }
 }
 
