@@ -15,6 +15,8 @@
 #include <syscall.h>
 #include <unistd.h>
 
+static const unsigned char breakpoint = 0xCC;
+
 /*
  * Fork a child process and set it up for tracing.
  * Replaces the child's image with the target program.
@@ -137,16 +139,17 @@ unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     return original_byte;
 }
 
-void run_trapped_instruction(pid_t child_pid, unsigned long addr, unsigned char original_byte, struct user_regs_struct* regs, int* wait_status){
-    static const unsigned char breakpoint = 0xCC;
+void remove_brkpnt_and_step(pid_t child_pid, unsigned long addr, unsigned char original_byte, struct user_regs_struct* regs){
     // place the original command, execute it and then return the breakpoint
     put_char(child_pid, (void*)addr, original_byte);
     regs->rip -= 1;                                      // move rip before the breakpoint
-    ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+    ptrace(PTRACE_SETREGS, child_pid, NULL, regs);
     ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //execute 1 command
-    wait(wait_status);
-    put_char(child_pid, (void*)addr, breakpoint);       // place the breakpoint again
+    
+}
 
+void add_brkpnt_and_cont(pid_t child_pid, unsigned long addr){
+    put_char(child_pid, (void*)addr, breakpoint);       // place the breakpoint again
     ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 }
 
@@ -193,7 +196,6 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         printf("PRF:: This function starts by pushing rbp\n");
     }
 
-    static unsigned char breakpoint = 0xCC;
     // place breakpoint at the start of the function
     unsigned char original_byte = put_char(child_pid, (void*)addr, breakpoint);
 
@@ -236,15 +238,9 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
                 printf("\n");
             }
 
-            // place the original command, execute it and then return the breakpoint
-            put_char(child_pid, (void*)addr, original_byte);
-            regs.rip -= 1;                                      // move rip before the breakpoint
-            ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
-            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //execute 1 command
+            remove_brkpnt_and_step(child_pid, addr, original_byte, &regs);
             wait(&wait_status);
-            put_char(child_pid, (void*)addr, breakpoint);       // place the breakpoint again
-
-            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+            add_brkpnt_and_cont(child_pid, addr);
         }
         //hit return breakpoint, rip - 1 -> the return address in the stack
         else if (return_address != 0 && (regs.rip - 1 == return_address)) {
@@ -255,26 +251,16 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
                 is_first_call = false;
 
                 // replace the breakpoint with the original command and DONT put another breakpoint
-                put_char(child_pid, (void*)return_address, return_original_byte);
-                regs.rip -= 1;
-                ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
-                ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+                remove_brkpnt_and_step(child_pid, return_address, return_original_byte, &regs);
                 wait(&wait_status);
-
                 return_address = 0;
                 ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
             } else {
                 // recursion return - need to execute the original command and return the breakpoint
-                put_char(child_pid, (void*)return_address, return_original_byte);
-                regs.rip -= 1;
-                ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
-                ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+                remove_brkpnt_and_step(child_pid, return_address, return_original_byte, &regs);
                 wait(&wait_status);
-
-                // Put the breakpoint back
-                put_char(child_pid, (void*)return_address, breakpoint);
-                ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+                add_brkpnt_and_cont(child_pid, return_address);
             }
         }
         else {
