@@ -137,6 +137,12 @@ unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     return original_byte;
 }
 
+
+// TODO: implement func that prints all params.
+void print_params(pid_t child_pid, unsigned long addr, int nr_params){
+
+}
+
 /*
  * Main debugger tracing loop.
  */
