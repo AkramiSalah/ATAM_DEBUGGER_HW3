@@ -123,6 +123,21 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
     return 0;
 }
 
+// input: address
+// side effect: puts a breakpoint(0xCC) at the address
+// returns: original byte that got replaced with a breakpoint.
+unsigned char put_breakpoint(void* addr){
+    static const unsigned char breakpoint = 0xCC;
+    unsigned char original_byte = *(char*)addr; 
+    *(char*)addr = 0xCC;
+    return original_byte;
+}
+
+// maybe restore byte is a btter name??? idk..
+void remove_breakpoint(void* addr, unsigned char original_byte){
+    *(char*)addr = original_byte;
+}
+
 /*
  * Main debugger tracing loop.
  */
