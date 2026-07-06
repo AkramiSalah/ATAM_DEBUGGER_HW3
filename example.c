@@ -131,8 +131,8 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
 
 unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, addr, NULL);
-    unsigned char original_byte = (unsigned char)(original_instr & 0XFF); 
-    unsigned long trap = (original_instr & ~(0xFF)) | ch; // epic sifratiot trick :)
+    unsigned char original_byte = (unsigned char)(original_instr & 0XFF);
+    unsigned long trap = (original_instr & ~(0xFFUL)) | ch; // epic sifratiot trick :)
     ptrace(PTRACE_POKETEXT, child_pid, addr, (void*)trap);
     return original_byte;
 }
@@ -176,84 +176,95 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
 
     //part B - print if first command in push rbp
     unsigned long first_instruction = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
-
     // push rbp opcode = 0x55.
     if ((first_instruction & 0xFF) == 0x55) {
         printf("PRF:: This function starts by pushing rbp\n");
     }
 
     static unsigned char breakpoint = 0xCC;
-    // insert breakpoint
+    // place breakpoint at the start of the function
     unsigned char original_byte = put_char(child_pid, (void*)addr, breakpoint);
 
+    unsigned long first_call_rsp = 0;   // stack depth of the outer call
+    int run_counter = 0;
+    bool is_first_call = false;
     unsigned long return_address = 0;
     unsigned char return_original_byte = 0;
 
-    //continue running
     ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
-    int run_counter = 0;
-    int recursive_count = 0;
-
     while(wait(&wait_status) > 0){
-        //stop when process ends.
-        if (WIFEXITED(wait_status)) {
-            break; // The child program finished naturally
+        //stop when process ends or crashes
+        if (WIFEXITED(wait_status) || WIFSIGNALED(wait_status)) {
+            break;
         }
-        ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+
+        ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
 
         // hit breakpoint at the start of the function
         if (regs.rip - 1 == addr) {
-            if (recursive_count == 0) {
+            // is_first_call is set to true only after passing in this if - only in the first run
+            if (!is_first_call) {
+                //initialize this variable
+                is_first_call = true;
                 run_counter++;
+
                 printf("PRF:: run #%d called with ", run_counter);
                 print_params(regs, nr_params);
                 printf(":\n");
 
-                //for phase D - place breakpoint at the return address of the
-                return_address = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)regs.rsp, NULL);
+                // save the stack pointer location from the first call
+                first_call_rsp = regs.rsp;
+                // save the original command at the return address (part C)
+                return_address = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)first_call_rsp, NULL);
                 return_original_byte = put_char(child_pid, (void*)return_address, breakpoint);
             } else {
-                // This is recursive
                 printf("PRF::     entered recursive call with ");
                 print_params(regs, nr_params);
                 printf("\n");
             }
 
-            // Will be used if the function will be called recursively
-            recursive_count++;
-
             // place the original command, execute it and then return the breakpoint
             put_char(child_pid, (void*)addr, original_byte);
-            regs.rip -= 1;                                      //move rip to before the breakboint and override the register
+            regs.rip -= 1;                                      // move rip before the breakpoint
             ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
-            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //do 1 command
+            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //execute 1 command
             wait(&wait_status);
-            put_char(child_pid, (void*)addr, breakpoint);       //put breakpoint back
+            put_char(child_pid, (void*)addr, breakpoint);       // place the breakpoint again
 
-            //continue the function
             ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         }
-        // hit return breakpoint
+        //hit return breakpoint, rip - 1 -> the return address in the stack
         else if (return_address != 0 && (regs.rip - 1 == return_address)) {
-            recursive_count--;
 
-            if (recursive_count == 0) {
-                // return value at rax after a function ended
-                printf("PRF::  call to function returned with %d\n", (int)regs.rax);
+            // check if this is the first call using the original stack pointer (ret is 8 bytes)
+            if (regs.rsp == first_call_rsp + 8) {
+                printf("PRF::   call to function returned with %d\n", (int)regs.rax);
+                is_first_call = false;
+
+                // replace the breakpoint with the original command and DONT put another breakpoint
+                put_char(child_pid, (void*)return_address, return_original_byte);
+                regs.rip -= 1;
+                ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+                ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+                wait(&wait_status);
+
+                return_address = 0;
+                ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+
+            } else {
+                // recursion return - need to execute the original command and return the breakpoint
+                put_char(child_pid, (void*)return_address, return_original_byte);
+                regs.rip -= 1;
+                ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+                ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
+                wait(&wait_status);
+
+                // Put the breakpoint back
+                put_char(child_pid, (void*)return_address, breakpoint);
+                ptrace(PTRACE_CONT, child_pid, NULL, NULL);
             }
-
-            // place the original command, execute it and NOT return the breakpoint
-            put_char(child_pid, (void*)return_address, return_original_byte);
-            regs.rip -= 1;
-            ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
-            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);
-            wait(&wait_status);
-
-            return_address = 0;
-            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         }
-        // stopped not because of the breakpoint - continue.
         else {
             ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         }
@@ -286,7 +297,7 @@ int main(int argc, char* const argv[])
         printf("PRF:: symbol not found\n");
         return 1;
     }else{
-        printf("PRF:: symbol address is 0x%lx\n", addr);
+        printf("PRF:: symbol address is 0x%lX\n", addr);
     }
 
     // Launch the target program
