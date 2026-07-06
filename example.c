@@ -131,8 +131,8 @@ unsigned long parse_elf(const char* target_sym, void* file_contents)
 
 unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, addr, NULL);
-    unsigned char original_byte = (unsigned char)(original_instr && 0XFF); 
-    unsigned long trap = (original_byte & ~(0xFF)) | ch; // epic sifratiot trick :)
+    unsigned char original_byte = (unsigned char)(original_instr & 0XFF); 
+    unsigned long trap = (original_instr & ~(0xFF)) | ch; // epic sifratiot trick :)
     ptrace(PTRACE_POKETEXT, child_pid, addr, (void*)trap);
     return original_byte;
 }
