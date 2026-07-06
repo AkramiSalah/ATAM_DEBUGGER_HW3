@@ -166,17 +166,13 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         wait(wait_status);
 
         ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
-
-        unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
-        if((original_instr & 0xFF) == 0x55){
+        unsigned char caller_original_byte = put_char(child_pid, regs.rsp, breakpoint);
+        
+        if((original_instr & 0xFF) == 0x55 && before_first_run){
             //hopefully i understood correctly so this means that this is a pushrbp opcode.
             printf("PRF:: This function starts by pushing rbp\n");
+            before_first_run = !before_first_run;
         }
-
-        // TODO : the rest of this.. its in the slides of trigul 8.
-        static unsigned char breakpoint = 0xCC;
-        unsigned char func_original_byte = put_char(child_pid, addr, breakpoint);
-        unsigned char caller_original_byte = put_char(child_pid, regs.rsp, breakpoint);
 
     }
 }
