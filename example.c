@@ -137,6 +137,18 @@ unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
     return original_byte;
 }
 
+void run_trapped_instruction(pid_t child_pid, unsigned long addr, unsigned char original_byte, struct user_regs_struct* regs, int* wait_status){
+    static const unsigned char breakpoint = 0xCC;
+    // place the original command, execute it and then return the breakpoint
+    put_char(child_pid, (void*)addr, original_byte);
+    regs->rip -= 1;                                      // move rip before the breakpoint
+    ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+    ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //execute 1 command
+    wait(wait_status);
+    put_char(child_pid, (void*)addr, breakpoint);       // place the breakpoint again
+
+    ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+}
 
 // TODO: implement func that prints all params.
 void print_params(struct user_regs_struct regs, int nr_params) {
@@ -237,7 +249,7 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
         //hit return breakpoint, rip - 1 -> the return address in the stack
         else if (return_address != 0 && (regs.rip - 1 == return_address)) {
 
-            // check if this is the first call using the original stack pointer (ret is 8 bytes)
+            // check if this is the first call using the original stack pointer (ret increaments by 8 bytes)
             if (regs.rsp == first_call_rsp + 8) {
                 printf("PRF::   call to function returned with %d\n", (int)regs.rax);
                 is_first_call = false;
