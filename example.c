@@ -139,8 +139,29 @@ unsigned char put_char(pid_t child_pid, void* addr, unsigned char ch){
 
 
 // TODO: implement func that prints all params.
-void print_params(pid_t child_pid, unsigned long addr, int nr_params){
+void print_params(struct user_regs_struct regs, int nr_params) {
+    printf("(");
 
+    if (nr_params > 0) {
+        printf("%d", (int)regs.rdi);
+    }
+    if (nr_params > 1) {
+        printf(", %d", (int)regs.rsi);
+    }
+    if (nr_params > 2) {
+        printf(", %d", (int)regs.rdx);
+    }
+    if (nr_params > 3) {
+        printf(", %d", (int)regs.rcx);
+    }
+    if (nr_params > 4) {
+        printf(", %d", (int)regs.r8);
+    }
+    if (nr_params > 5) {
+        printf(", %d", (int)regs.r9);
+    }
+
+    printf(")");
 }
 
 /*
@@ -160,28 +181,54 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     if ((first_instruction & 0xFF) == 0x55) {
         printf("PRF:: This function starts by pushing rbp\n");
     }
-    
-    // TODO: Implement tracing logic
-    int icounter = 0;
-    bool before_first_run = 1;
-    while(WIFSTOPPED(wait_status)){
 
-        static unsigned char breakpoint = 0xCC;
-        unsigned char func_original_byte = put_char(child_pid, addr, breakpoint);
-        unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
+    static unsigned char breakpoint = 0xCC;
+    // insert breakpoint
+    unsigned char original_byte = put_char(child_pid, (void*)addr, breakpoint);
+    //continue running
+    ptrace(PTRACE_CONT, child_pid, NULL, NULL);
 
-        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
-        wait(wait_status);
+    int run_counter = 0;
+    int recursive_count = 0;
 
-        ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
-        unsigned char caller_original_byte = put_char(child_pid, regs.rsp, breakpoint);
-        
-        if((original_instr & 0xFF) == 0x55 && before_first_run){
-            //hopefully i understood correctly so this means that this is a pushrbp opcode.
-            printf("PRF:: This function starts by pushing rbp\n");
-            before_first_run = !before_first_run;
+    while(wait(&wait_status) > 0){
+        //stop when process ends.
+        if (WIFEXITED(wait_status)) {
+            break; // The child program finished naturally
         }
 
+        // hit breakpoint at the start of the function
+        if (regs.rip - 1 == addr) {
+            if (recursive_count == 0) {
+                run_counter++;
+                printf("PRF:: run #%d called with ", run_counter);
+                print_params(regs, nr_params);
+                printf(":\n");
+            } else {
+                // This is recursive
+                printf("PRF::     entered recursive call with ");
+                print_params(regs, nr_params);
+                printf("\n");
+            }
+
+            // Will be used if the function will be called recursively
+            recursive_count++;
+
+            // place the original command, execute it and then return the breakpoint
+            put_char(child_pid, (void*)addr, original_byte);
+            regs.rip -= 1;                                      //move rip to before the breakboint and override the register
+            ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
+            ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL);   //do 1 command
+            wait(&wait_status);
+            put_char(child_pid, (void*)addr, breakpoint);       //put breakpoint back
+
+            //continue the function
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        }
+        // stopped not because of the breakpoint - continue.
+        else {
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        }
     }
 }
 
