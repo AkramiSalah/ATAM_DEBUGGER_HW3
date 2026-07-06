@@ -155,7 +155,16 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     
     // TODO: Implement tracing logic
     int icounter = 0;
+    bool before_first_run = 1;
     while(WIFSTOPPED(wait_status)){
+
+        static unsigned char breakpoint = 0xCC;
+        unsigned char func_original_byte = put_char(child_pid, addr, breakpoint);
+        unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
+
+        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        wait(wait_status);
+
         ptrace(PTRACE_GETREGS, child_pid, NULL, &regs);
 
         unsigned long original_instr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
