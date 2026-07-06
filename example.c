@@ -152,6 +152,14 @@ void run_tracer(pid_t child_pid, unsigned long addr, int nr_params)
     struct user_regs_struct regs;
 
     wait(&wait_status);
+
+    //part B - print if first command in push rbp
+    unsigned long first_instruction = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)addr, NULL);
+
+    // push rbp opcode = 0x55.
+    if ((first_instruction & 0xFF) == 0x55) {
+        printf("PRF:: This function starts by pushing rbp\n");
+    }
     
     // TODO: Implement tracing logic
     int icounter = 0;
@@ -203,10 +211,9 @@ int main(int argc, char* const argv[])
         printf("PRF:: symbol not found\n");
         return 1;
     }else{
-        printf("PRF:: symbol address is %p\n", addr);
+        printf("PRF:: symbol address is 0x%lx\n", addr);
     }
 
-    // TODO: check and print if the called func starts with push %rbp. 
     // Launch the target program
 
     pid_t child_pid = run_target(argv + 3);
